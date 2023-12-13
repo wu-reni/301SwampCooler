@@ -81,7 +81,3 @@ void U0putchar(unsigned char U0pdata){
   while((*myUCSR0A & TBE)==0);
   *myUDR0 = U0pdata;
 }
-
-void startInterrupt(){
-  int start = true;
-}
