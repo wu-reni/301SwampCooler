@@ -18,8 +18,8 @@ Stepper vent = Stepper(stepsPerRevolution, 25, 24, 23, 22);
 #define ventPin A0
 #define THSensor 50
 
-#define TEMP_THRESHOLD_HIGH 24
-#define TEMP_THRESHOLD_LOW 22
+#define TEMP_THRESHOLD_HIGH 25
+#define TEMP_THRESHOLD_LOW 24
 
 #define WATER_THRESHOLD 10
 
@@ -60,11 +60,14 @@ volatile unsigned char* pin_b = (unsigned char*) 0x23;
 #define ENABLE_MOTOR *port_b |= 0x80
 
 
-const int RS = 52, EN = 53, D4 = 50, D5 = 51, D6 = 48, D7 = 49;
+const int RS = 22, EN = 23, D4 = 24, D5 = 25, D6 = 26, D7 = 27;
 LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
 
 dht DHT;
 DS3231 timer;
+
+unsigned long begin = 0;
+const long interval = 5000;
 
 enum {
   DISABLED,
@@ -89,9 +92,13 @@ void setup() {
   *ddr_g &= ~(0x01 << 5);
 
   state = DISABLED;
+  timer.setHour(0);
+  timer.setMinute(0);
+  timer.setSecond(0);
 }
 
 void loop() {
+  attachInterrupt(digitalPinToInterrupt(3), startInterrupt, RISING);
   switch (state) {
     case DISABLED:
       execDisabledState();
@@ -114,11 +121,10 @@ void execDisabledState() {
 
   while(true) {
     //TODO: implement vent position logic
-
-    if(START_PRESSED)
-      state = IDLE;
+    lcd.clear();
     
     if(state != DISABLED)
+      displayTime();
       break;
   }
 }
@@ -128,19 +134,26 @@ void execIdleState() {
   SET_LED_GREEN;
 
   while(true) {
+    DHT.read11(THSensor);
     displayDHT();
 
     //TODO: implement vent position logic
     
-    if(DHT.temperature > TEMP_THRESHOLD_HIGH)
+    if(DHT.temperature > TEMP_THRESHOLD_HIGH){
       state = RUNNING;
+      displayTime();
+    }
 
-    if(STOP_PRESSED)
+    if(STOP_PRESSED){
       state = DISABLED;
+      displayTime();
+    }
 
     unsigned int waterLevel = adc_read(0);
-    if(waterLevel <= WATER_THRESHOLD)
+    if(waterLevel <= WATER_THRESHOLD){
       state = ERROR;
+      displayTime();
+    }
     
     if(state != IDLE)
       break;
@@ -155,19 +168,27 @@ void execRunningState() {
   // TODO: print current time
 
   while(true) {
+    DHT.read11(THSensor);
     displayDHT();
-
+    
+    
     //TODO: implement vent position logic
 
-    if(DHT.temperature <= TEMP_THRESHOLD_LOW)
+    if(DHT.temperature <= TEMP_THRESHOLD_LOW){
       state = IDLE;
+      displayTime();
+    }
 
-    if(STOP_PRESSED)
+    if(STOP_PRESSED){
       state = DISABLED;
+      displayTime();
+    }
 
     unsigned int waterLevel = adc_read(0);
-    if(waterLevel <= WATER_THRESHOLD)
+    if(waterLevel <= WATER_THRESHOLD){
       state = ERROR;
+      displayTime();
+    }
     
     if(state != RUNNING)
       break;
@@ -182,20 +203,66 @@ void execErrorState() {
   CLEAR_LEDS;
   SET_LED_RED;
   Serial.println("Water level is too low");
+  DHT.read11(THSensor);
+  displayDHT();
 
   while(true) {
-    if(RESET_PRESSED)
+    if(RESET_PRESSED){
       state = IDLE;
+      displayTime();
+    }
 
-    if(STOP_PRESSED)
+    if(STOP_PRESSED){
       state = DISABLED;
-
+      displayTime();
+    }
+  
     if(state != ERROR)
       break;
   }
 }
 
+void displayTime(){
+  bool temp;
+  byte time = timer.getHour(temp, temp);
+  int a = (time / 10) + 48;
+  int b = (time % 10) + 48;
+  U0putchar(a);
+  U0putchar(b);
+  U0putchar(':');
+  time = timer.getMinute();
+  a = (time / 10) + 48;
+  b = (time % 10) + 48;
+  U0putchar(a);
+  U0putchar(b);
+  U0putchar(':');
+  time = timer.getSecond();
+  a = (time / 10) + 48;
+  b = (time % 10) + 48;
+  U0putchar(a);
+  U0putchar(b);
+  U0putchar('\n');
+}
+
+void startInterrupt(){
+  state = IDLE;
+}
 
 void displayDHT() {
   // TOOD: implement temperature and humidity LCD display
+  unsigned long current = millis();
+  if(current - begin >= interval){
+    int temperature = DHT.temperature;
+    int humidity = DHT.humidity;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.write("Temperature: ");
+    lcd.print(temperature);
+    lcd.write("C");
+    lcd.setCursor(0, 2);
+    lcd.write("Humidity: ");
+    lcd.print(humidity);
+    lcd.write("%");
+    begin = current; 
+  }
 }
